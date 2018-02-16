@@ -2,7 +2,7 @@
 # Uses the echobot template.
 
 # init:
-# python3 annabot.py -d -j brukernavn@chat.uio.no -r room@conference.chat.uio.no -n Anna
+# python3 annabot.py -d -j brukernavn@chat.uio.no -r room@conference.chat.uio.no -n Anna -rtu brukernavn
 """                                                                                          
 Initial usage is simple statistics from RequestTracker through xmpp chat.                    
 Initial goals for functionality:                                                             
@@ -13,21 +13,26 @@ Initial goals for functionality:
 """                                                                                          
 
 import sleekxmpp
+
 import sys
 import logging
 import getpass
+
+import rt
+
+import re
 from optparse import OptionParser
 
 if sys.version_info < (3, 0):
     reload(sys)
     sys.setdefaultencoding('utf8')
 else:
-    raw_input = input<Paste>
+    raw_input = input
 
 
 class AnnaBot(sleekxmpp.ClientXMPP):
 
-    def __init__(self, jid, password, room, nick):
+    def __init__(self, jid, password, room, nick, rt_user, rt_pw):
         sleekxmpp.ClientXMPP.__init__(self, jid, password)
 
         self.room = room
@@ -35,6 +40,12 @@ class AnnaBot(sleekxmpp.ClientXMPP):
 
         self.add_event_handler("session_start", self.start)
         self.add_event_handler("groupchat_message", self.muc_message)
+
+        # RT tracker setup and login
+        tracker = rt.Rt('https://rt.uio.no/rt/REST/1.0/', rt_user, rt_pw)
+        tracker.login()
+
+
 
 
 
@@ -52,9 +63,13 @@ class AnnaBot(sleekxmpp.ClientXMPP):
                         data.
         """
 
-        self.get_roster()
+        #self.get_roster()
         self.send_presence()
-        self.plugin('xep_0045')
+        self.plugin['xep_0045'].joinMUC(self.room,
+                                        self.nick,
+                                        # if room pw needed,
+                                        # use password = room_pw
+                                        wait=True)
 
     def muc_message(self, msg):
         """
@@ -79,10 +94,27 @@ class AnnaBot(sleekxmpp.ClientXMPP):
                    how it may be used.
         """
 
-        if msg['mucnick'] != self.nick and self.nick in msg['body']:
-            self.send_message(mto=msg['from'].bare,
-                            mbody="I heard that, %s." % msg['mucnick'],
-                            mtype='groupchat')
+        #if msg['mucnick'] != self.nick and self.nick in msg['body']:
+        #    self.send_message(mto=msg['from'].bare,
+        #                    mbody="I heard that, %s." % msg['mucnick'],
+        #                    mtype='groupchat')
+        
+        # Check for rt ticket match and fetch info:
+        reg = r"#\d{7}"
+        if msg['mucnick'] != self.nick:
+            found = re.search(reg,msg['body'])
+            if found not None:
+                ticket_id = found.group(1)
+                ticket_data = rt.get_ticket(ticket_id)
+
+
+
+                
+
+
+
+
+
 
 
 
@@ -110,6 +142,10 @@ if __name__ == "__main__":
                     help="MUC room to join")
     optp.add_option("-n", "--nick", dest="nick",
                     help="MUC nickname")
+    optp.add_option("-rtu", "--rtuser", dest="rt_user",
+                    help="RT username")
+    optp.add_option("-rtp", "--rtpassword", dest="rt_pw",
+                    help="RT password")
 
     opts, args = optp.parse_args()
 
@@ -125,11 +161,15 @@ if __name__ == "__main__":
         opts.room = raw_input("MUC room: ")
     if opts.nick is None:
         opts.nick = raw_input("MUC nickname: ")
+    if opts.rt_user is None:
+        opts.rt_user = raw_input("RT username: ")
+    if opts.rt_pw is None:
+        opts.rt_pw = getpass.getpass("RT Password: ")
 
     # Setup the MUCBot and register plugins. Note that while plugins may
     # have interdependencies, the order in which you register them does
     # not matter.
-    xmpp = MUCBot(opts.jid, opts.password, opts.room, opts.nick)
+    xmpp = AnnaBot(opts.jid, opts.password, opts.room, opts.nick, rt_user, rt_pw)
     xmpp.register_plugin('xep_0030') # Service Discovery
     xmpp.register_plugin('xep_0045') # Multi-User Chat
     xmpp.register_plugin('xep_0199') # XMPP Ping
